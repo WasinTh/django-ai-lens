@@ -3,14 +3,10 @@ Django schema extractor: crawl a Django project for models and persist the schem
 
 Given a project path, bootstraps Django, reads INSTALLED_APPS from settings.py,
 extracts model schemas, and stores them in a file for use by prompt_builder.
-
-Uses static parsing of settings.py (no import/execution) to avoid pulling in
-the target project's dependencies (environ, etc.).
 """
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import re
@@ -54,86 +50,6 @@ def _find_settings_module(project_path: str) -> str:
     )
 
 
-def _resolve_settings_path(project_path: Path, settings_module: str) -> Path:
-    """Resolve settings module name to the actual settings file path."""
-    # e.g. "sdr_backend.settings" -> project/sdr_backend/settings.py
-    # e.g. "myproject.settings.base" -> project/myproject/settings/base.py
-    parts = settings_module.split(".")
-    candidates = [
-        project_path.joinpath(*parts[:-1], f"{parts[-1]}.py"),
-        project_path.joinpath(*parts, "__init__.py"),
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    return candidates[0]  # raise later with clearer error
-
-
-def _extract_strings_from_ast_node(node: ast.AST) -> list[str]:
-    """Recursively extract string literals from an AST node (list, tuple, or BinOp)."""
-    result: list[str] = []
-    if isinstance(node, (ast.List, ast.Tuple)):
-        for elt in node.elts:
-            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                result.append(elt.value)
-            elif isinstance(elt, ast.Str):  # Python < 3.8
-                result.append(elt.s)
-            elif isinstance(elt, (ast.List, ast.Tuple, ast.BinOp)):
-                result.extend(_extract_strings_from_ast_node(elt))
-    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        result.extend(_extract_strings_from_ast_node(node.left))
-        result.extend(_extract_strings_from_ast_node(node.right))
-    return result
-
-
-def _parse_installed_apps_from_tree(tree: ast.AST) -> list[str] | None:
-    """Extract INSTALLED_APPS from an AST tree. Returns None if not found."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "INSTALLED_APPS":
-                    return _extract_strings_from_ast_node(node.value)
-    return None
-
-
-def _parse_installed_apps_static(settings_path: Path) -> list[str]:
-    """
-    Parse INSTALLED_APPS from settings.py without executing it.
-    For split settings (e.g. settings/base.py), also checks sibling .py files.
-    Returns the raw app identifiers (strings) as defined in the file.
-    """
-    # Try the main settings file first
-    content = settings_path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(content)
-    except SyntaxError as e:
-        raise ValueError(
-            f"Cannot parse settings file {settings_path}: {e}. "
-            "Ensure it is valid Python."
-        ) from e
-
-    result = _parse_installed_apps_from_tree(tree)
-    if result is not None:
-        return result
-
-    # Fallback: split settings (e.g. from .base import *) — search sibling files
-    for sibling in settings_path.parent.glob("*.py"):
-        if sibling == settings_path:
-            continue
-        try:
-            tree = ast.parse(sibling.read_text(encoding="utf-8"))
-        except SyntaxError:
-            continue
-        result = _parse_installed_apps_from_tree(tree)
-        if result is not None:
-            return result
-
-    raise ValueError(
-        f"INSTALLED_APPS not found in {settings_path} or sibling files. "
-        "Ensure the settings define INSTALLED_APPS as a list/tuple."
-    )
-
-
 def bootstrap_django(project_path: str) -> str:
     """
     Configure Django for the given project. Call this before using schema/queryset
@@ -147,49 +63,30 @@ def bootstrap_django(project_path: str) -> str:
 
 def _get_installed_app_labels(project_path: str, settings_module: str) -> list[str]:
     """
-    Parse INSTALLED_APPS from settings.py (without executing it) and bootstrap
-    Django via settings.configure(). Returns app labels (e.g. 'myapp', 'auth')
-    excluding Django built-ins.
+    Load the Django settings module and extract INSTALLED_APPS.
+    Returns app labels (e.g. 'myapp', 'auth') excluding Django built-ins.
     """
     project = Path(project_path).resolve()
     if str(project) not in sys.path:
         sys.path.insert(0, str(project))
 
-    # Parse INSTALLED_APPS statically — never import/execute the target's settings
-    settings_path = _resolve_settings_path(project, settings_module)
-    if not settings_path.exists():
-        raise FileNotFoundError(
-            f"Settings file not found: {settings_path}. "
-            f"Expected from module {settings_module!r}."
-        )
-    installed_apps = _parse_installed_apps_static(settings_path)
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_module)
 
-    # Bootstrap Django without loading the target's settings module
     import django
-    from django.conf import settings
-
-    if not settings.configured:
-        settings.configure(
-            DEBUG=True,
-            SECRET_KEY="django-lens-schema-extraction",
-            INSTALLED_APPS=installed_apps,
-            DATABASES={
-                "default": {
-                    "ENGINE": "django.db.backends.sqlite",
-                    "NAME": ":memory:",
-                }
-            },
-            USE_TZ=True,
-        )
     django.setup()
 
+    from django.conf import settings
+
     app_labels = []
-    for app in installed_apps:
+    for app in getattr(settings, "INSTALLED_APPS", []):
         if isinstance(app, str):
+            # Skip Django contrib and third-party by default; keep project apps
             if app.startswith("django."):
                 continue
+            # App config like "myapp.apps.MyAppConfig" -> "myapp"
             label = app.split(".")[0]
             app_labels.append(label)
+        # Skip AppConfig instances for simplicity; string entries cover most cases
 
     return app_labels
 
