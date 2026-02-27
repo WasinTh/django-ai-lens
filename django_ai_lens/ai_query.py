@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from django_ai_lens.schema_extrator import (
     _get_installed_app_labels_from_settings,
+    extract_and_save,
     get_models_schema,
 )
 from django_ai_lens.prompt_builder import build_messages
@@ -29,15 +30,48 @@ def _get_client():
 
 def _get_model_name():
     """Get model name from Django settings."""
-    return getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash")
+    return getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash")
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
+
+def generate_schema(app_labels: list[str] | None = None) -> str:
+    """
+    Debug helper: generates the Django models schema only (no AI/LLM call) and
+    prints it to screen.
+
+    Use this to inspect the schema that would be sent to the LLM for a given
+    set of app labels.
+
+    Args:
+        app_labels: App labels to include. If None, uses all installed apps.
+
+    Returns:
+        The schema string (plain-text model/field description).
+    """
+    if app_labels is None:
+        app_labels = _get_installed_app_labels_from_settings()
+    if not app_labels:
+        raise ValueError(
+            "No app labels available. Provide app_labels explicitly, or ensure "
+            "INSTALLED_APPS in settings.py contains your Django apps."
+        )
+    schema = get_models_schema(app_labels)
+    print("─" * 60)
+    print("Django Models Schema (debug)")
+    print("─" * 60)
+    print(f"App labels: {app_labels}")
+    print()
+    print(schema)
+    print("─" * 60)
+    return schema
+
 
 def run_ai_query(
     question: str,
     app_labels: list[str] | None = None,
     max_retries: int = 2,
+    force_regenerate_schema: bool = False,
 ) -> dict:
     """
     Full pipeline:
@@ -55,6 +89,8 @@ def run_ai_query(
         app_labels: App labels to query (e.g. ["myapp", "orders"]). If None,
             uses all installed apps from settings.INSTALLED_APPS (excluding Django built-ins).
         max_retries: Number of retries if the AI returns invalid JSON or queryset fails.
+        force_regenerate_schema: If True, regenerates and saves the schema JSON file
+            (via extract_and_save) before running the query. Use when models have changed.
 
     Returns:
         dict with success, question, query_schema, data, row_count, chart_type, chart_data
@@ -66,6 +102,9 @@ def run_ai_query(
             "No app labels available. Provide app_labels explicitly, or ensure "
             "INSTALLED_APPS in settings.py contains your Django apps."
         )
+
+    if force_regenerate_schema:
+        extract_and_save()
 
     schema = get_models_schema(app_labels)
     payload = build_messages(schema, question)

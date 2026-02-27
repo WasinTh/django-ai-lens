@@ -72,6 +72,15 @@ def get_models_schema(app_labels: list[str]) -> str:
     for model_name, model in all_models.items():
         lines = [f"Model: {model_name} (app: {model._meta.app_label})"]
 
+        # Model description from Meta.verbose_name / verbose_name_plural
+        verbose_name = getattr(model._meta, "verbose_name", None)
+        verbose_name_plural = getattr(model._meta, "verbose_name_plural", None)
+        if verbose_name:
+            desc = str(verbose_name)
+            if verbose_name_plural and str(verbose_name_plural) != str(verbose_name):
+                desc = f"{desc} (plural: {verbose_name_plural})"
+            lines.append(f"  Description: {desc}")
+
         # ── Direct fields ──────────────────────────────────────────────────
         lines.append("  Fields:")
         for field in model._meta.get_fields():
@@ -79,16 +88,19 @@ def get_models_schema(app_labels: list[str]) -> str:
                 continue
 
             field_type = type(field).__name__
+            help_text = getattr(field, "help_text", None) or ""
+            help_suffix = f" — {help_text}" if help_text else ""
 
             if field.is_relation and field.concrete:
                 related_model = field.related_model
                 related_name = related_model.__name__ if related_model else "Unknown"
                 lines.append(
                     f"    - {field.name}: {field_type} → {related_name}"
+                    f"{help_suffix}"
                     f"  [ORM path: {field.name}__<{related_name.lower()}_field>]"
                 )
             else:
-                lines.append(f"    - {field.name}: {field_type}")
+                lines.append(f"    - {field.name}: {field_type}{help_suffix}")
 
         # ── Reverse relations ──────────────────────────────────────────────
         reverse_lines = []
@@ -122,8 +134,11 @@ def get_models_schema(app_labels: list[str]) -> str:
                 if through and not through._meta.auto_created
                 else "auto"
             )
+            help_text = getattr(field, "help_text", None) or ""
+            help_suffix = f" — {help_text}" if help_text else ""
             m2m_lines.append(
                 f"    - {field.name}: ManyToManyField → {related_name}"
+                f"{help_suffix}"
                 f"  [through: {through_name}]"
                 f"  [ORM path: {field.name}__<{related_name.lower()}_field>]"
             )

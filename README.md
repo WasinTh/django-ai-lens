@@ -30,8 +30,8 @@ Add the following to your Django project's `settings.py`:
 # Required
 GEMINI_API_KEY = "your_gemini_api_key_here"
 
-# Optional (defaults to gemini-1.5-flash)
-GEMINI_MODEL = "gemini-1.5-flash"  # or gemini-1.5-pro, gemini-2.0-flash, etc.
+# Optional (defaults to gemini-2.5-flash)
+GEMINI_MODEL = "gemini-2.5-flash"  # or gemini-1.5-pro, gemini-2.0-flash, etc.
 ```
 
 Get your API key at [Google AI Studio](https://aistudio.google.com/apikey).
@@ -46,6 +46,7 @@ from django_ai_lens import run_ai_query
 result = run_ai_query(
     question="Total revenue per customer country in 2024, as a bar chart",
     app_labels=["myapp", "orders"],  # Optional: omit to use all apps from INSTALLED_APPS
+    force_regenerate_schema=False,   # Set True when models have changed
 )
 
 print(result["data"])        # List of dicts (rows)
@@ -134,6 +135,18 @@ print(result["output_path"])
 print(result["app_labels"])
 ```
 
+### `generate_schema(app_labels=None)`
+
+Generates the Django models schema only (no AI/LLM call) and prints it to screen. Use for debugging to inspect the schema that would be sent to the LLM:
+
+```python
+# python manage.py shell
+from django_ai_lens import generate_schema
+
+generate_schema()                    # Schema for all installed apps
+generate_schema(app_labels=["myapp"])  # Schema for specific apps
+```
+
 ## Example questions
 
 The AI understands a wide range of questions, such as:
@@ -161,19 +174,30 @@ django-ai-lens/
 
 ## API reference
 
-### `run_ai_query(question, app_labels=None, max_retries=2)`
+### `run_ai_query(question, app_labels=None, max_retries=2, force_regenerate_schema=False)`
 
 Runs the full pipeline: build schema from Django models → ask LLM → validate → build queryset → return data.
 
-| Argument     | Type   | Description |
-|--------------|--------|--------------|
-| `question`   | `str`  | Natural language query |
-| `app_labels` | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins). |
-| `max_retries`| `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
+| Argument                  | Type   | Description |
+|---------------------------|--------|--------------|
+| `question`                | `str`  | Natural language query |
+| `app_labels`              | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins). |
+| `max_retries`             | `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
+| `force_regenerate_schema` | `bool` | If `True`, regenerates and saves the schema JSON file before running the query. Use when models have changed. |
 
 **Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`
 
 **Raises:** `ValueError` if no app labels are available (empty `app_labels` and no apps in `INSTALLED_APPS`); `RuntimeError` if `GEMINI_API_KEY` is not set or all retries fail.
+
+### `generate_schema(app_labels=None)`
+
+Generates the Django models schema only (no AI/LLM call) and prints it to screen. Use for debugging to inspect the schema that would be sent to the LLM.
+
+| Argument     | Type   | Description |
+|--------------|--------|--------------|
+| `app_labels` | `list`, optional | App labels to include. If omitted, uses all installed apps. |
+
+**Returns:** `str` — the schema string (plain-text model/field description)
 
 ### `extract_and_save(output_file=None)`
 
