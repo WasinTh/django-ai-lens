@@ -8,7 +8,7 @@ from django.db.models import (
 )
 from django.db.models import fields as django_fields
 
-from django_lens.query_schema import (
+from django_ai_lens.query_schema import (
     AIQuerySchema,
     AggregationOperation,
     AggregationSchema,

@@ -9,7 +9,7 @@ description = "Natural language queries for Django models, powered by AI"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-authors = [{ name = "Django Lens" }]
+authors = [{ name = "Django AI Lens" }]
 keywords = ["django", "ai", "llm", "gemini", "natural-language", "orm"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -36,4 +36,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["django_lens*"]
+include = ["django_ai_lens*"]

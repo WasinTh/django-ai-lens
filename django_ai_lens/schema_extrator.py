@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 # Default schema cache file (relative to cwd)
-DEFAULT_SCHEMA_FILE = ".django_lens_schema.json"
+DEFAULT_SCHEMA_FILE = ".django_ai_lens_schema.json"
 
 
 def _get_installed_app_labels_from_settings() -> list[str]:
@@ -145,7 +145,7 @@ def extract_from_loaded_django(
     Use when Django is already configured, e.g. from Django shell.
 
     Args:
-        output_file: Where to save the schema JSON. Defaults to cwd/.django_lens_schema.json.
+        output_file: Where to save the schema JSON. Defaults to cwd/.django_ai_lens_schema.json.
 
     Returns:
         {"schema": str, "app_labels": list[str], "output_path": str}
@@ -181,7 +181,7 @@ def extract_and_save(
     Requires Django to be already configured (e.g. from Django shell or a running app).
 
     Args:
-        output_file: Where to save the schema. Defaults to cwd/.django_lens_schema.json.
+        output_file: Where to save the schema. Defaults to cwd/.django_ai_lens_schema.json.
 
     Returns:
         {"schema": str, "app_labels": list[str], "output_path": str}

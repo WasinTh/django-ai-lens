@@ -7,10 +7,10 @@ from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
-from django_lens.schema_extrator import get_models_schema
-from django_lens.prompt_builder import build_messages
-from django_lens.query_schema import AIQuerySchema, ChartType
-from django_lens.queryset_builder import build_queryset, queryset_to_list
+from django_ai_lens.schema_extrator import get_models_schema
+from django_ai_lens.prompt_builder import build_messages
+from django_ai_lens.query_schema import AIQuerySchema, ChartType
+from django_ai_lens.queryset_builder import build_queryset, queryset_to_list
 
 
 def _get_client():

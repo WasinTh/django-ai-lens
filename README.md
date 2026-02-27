@@ -1,4 +1,4 @@
-# Django Lens
+# Django AI Lens
 
 **Natural language queries for Django models, powered by AI.** Ask questions in plain English and get structured data back—with optional Chart.js-ready output for visualizations.
 
@@ -38,10 +38,10 @@ Get your API key at [Google AI Studio](https://aistudio.google.com/apikey).
 
 ## How to Use
 
-Use Django Lens from within your Django project (views, management commands, shell). Django must be configured before calling `run_ai_query`.
+Use Django AI Lens from within your Django project (views, management commands, shell). Django must be configured before calling `run_ai_query`.
 
 ```python
-from django_lens import run_ai_query
+from django_ai_lens import run_ai_query
 
 result = run_ai_query(
     question="Total revenue per customer country in 2024, as a bar chart",
@@ -77,7 +77,7 @@ print(result["query_schema"])  # The AI-generated query structure
 ```python
 # views.py
 from django.http import JsonResponse
-from django_lens import run_ai_query
+from django_ai_lens import run_ai_query
 
 def ai_query_view(request):
     question = request.GET.get("q", "Count all users")
@@ -93,7 +93,7 @@ def ai_query_view(request):
 ```python
 # management/commands/query.py
 from django.core.management.base import BaseCommand
-from django_lens import run_ai_query
+from django_ai_lens import run_ai_query
 
 class Command(BaseCommand):
     def add_arguments(self, parser):
@@ -112,7 +112,7 @@ class Command(BaseCommand):
 
 ```python
 # python manage.py shell
-from django_lens import run_ai_query
+from django_ai_lens import run_ai_query
 
 result = run_ai_query(
     question="Count of orders per month in 2024",
@@ -126,9 +126,9 @@ Extract and save the schema to a JSON file for debugging or documentation:
 
 ```python
 # python manage.py shell
-from django_lens import extract_and_save
+from django_ai_lens import extract_and_save
 
-# Saves to .django_lens_schema.json in current directory
+# Saves to .django_ai_lens_schema.json in current directory
 result = extract_and_save()
 print(result["output_path"])
 print(result["app_labels"])
@@ -148,7 +148,7 @@ The AI understands a wide range of questions, such as:
 
 ```
 django-ai-lens/
-├── django_lens/
+├── django_ai_lens/
 │   ├── __init__.py
 │   ├── ai_query.py          # Main entry: run_ai_query()
 │   ├── schema_extrator.py   # Schema extraction & loading
