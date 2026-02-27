@@ -1,92 +1,48 @@
 """
 Django schema extractor: crawl a Django project for models and persist the schema.
 
-Given a project path, bootstraps Django, reads INSTALLED_APPS from settings.py,
-extracts model schemas, and stores them in a file for use by prompt_builder.
+Embedded mode only: When Django is already configured (e.g. from Django shell or
+a running app), extracts schema from the currently loaded INSTALLED_APPS.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
-import sys
 from pathlib import Path
 
 
-# Default schema cache file (relative to project or cwd)
+# Default schema cache file (relative to cwd)
 DEFAULT_SCHEMA_FILE = ".django_lens_schema.json"
 
 
-def _find_settings_module(project_path: str) -> str:
+def _get_installed_app_labels_from_settings() -> list[str]:
     """
-    Discover the Django settings module by inspecting manage.py or searching
-    for settings.py in the project.
+    Extract app labels from INSTALLED_APPS using Django's app registry.
+    Use when Django is already configured (e.g. from Django shell).
+    Returns actual app labels (e.g. 'common', 'bplus') excluding Django built-ins.
+    Uses apps.get_app_configs() so 'apps.common' → 'common', not 'apps'.
     """
-    project = Path(project_path).resolve()
-    if not project.is_dir():
-        raise ValueError(f"Project path is not a directory: {project_path}")
-
-    # Try manage.py first (most reliable)
-    manage_py = project / "manage.py"
-    if manage_py.exists():
-        content = manage_py.read_text()
-        match = re.search(
-            r"DJANGO_SETTINGS_MODULE\s*[=,]\s*['\"]([^'\"]+)['\"]",
-            content,
-        )
-        if match:
-            return match.group(1)
-
-    # Fallback: search for settings.py
-    for path in project.rglob("settings.py"):
-        rel = path.relative_to(project)
-        parts = list(rel.parts[:-1]) + ["settings"]
-        return ".".join(parts) if parts else "settings"
-
-    raise ValueError(
-        f"Cannot find Django settings. Ensure {project_path} contains manage.py "
-        "or settings.py."
-    )
-
-
-def bootstrap_django(project_path: str) -> str:
-    """
-    Configure Django for the given project. Call this before using schema/queryset
-    when loading from file, so that django.apps can resolve models.
-    Returns the settings module name.
-    """
-    settings_module = _find_settings_module(project_path)
-    _get_installed_app_labels(project_path, settings_module)
-    return settings_module
-
-
-def _get_installed_app_labels(project_path: str, settings_module: str) -> list[str]:
-    """
-    Load the Django settings module and extract INSTALLED_APPS.
-    Returns app labels (e.g. 'myapp', 'auth') excluding Django built-ins.
-    """
-    project = Path(project_path).resolve()
-    if str(project) not in sys.path:
-        sys.path.insert(0, str(project))
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_module)
-
-    import django
-    django.setup()
-
+    from django.apps import apps
     from django.conf import settings
 
+    # Build name -> label map from app registry (handles dotted paths correctly)
+    name_to_label = {ac.name: ac.label for ac in apps.get_app_configs()}
+
     app_labels = []
+    seen = set()
     for app in getattr(settings, "INSTALLED_APPS", []):
         if isinstance(app, str):
-            # Skip Django contrib and third-party by default; keep project apps
             if app.startswith("django."):
                 continue
-            # App config like "myapp.apps.MyAppConfig" -> "myapp"
-            label = app.split(".")[0]
-            app_labels.append(label)
-        # Skip AppConfig instances for simplicity; string entries cover most cases
+            label = name_to_label.get(app)
+            if label is not None and label not in seen:
+                seen.add(label)
+                app_labels.append(label)
+        elif hasattr(app, "label"):
+            if app.label not in seen:
+                seen.add(app.label)
+                app_labels.append(app.label)
 
     return app_labels
 
@@ -181,32 +137,32 @@ def get_models_schema(app_labels: list[str]) -> str:
     return "\n\n".join(schema_parts)
 
 
-def extract_and_save(
-    project_path: str,
+def extract_from_loaded_django(
     output_file: str | Path | None = None,
 ) -> dict:
     """
-    Crawl the Django project at `project_path`, extract model schemas from
-    INSTALLED_APPS (via settings.py), and save to a JSON file.
+    Extract model schemas from the currently loaded Django (embedded mode).
+    Use when Django is already configured, e.g. from Django shell.
+
+    Args:
+        output_file: Where to save the schema JSON. Defaults to cwd/.django_lens_schema.json.
 
     Returns:
         {"schema": str, "app_labels": list[str], "output_path": str}
     """
-    project = Path(project_path).resolve()
-    settings_module = _find_settings_module(str(project))
-    app_labels = _get_installed_app_labels(str(project), settings_module)
-
+    app_labels = _get_installed_app_labels_from_settings()
     schema = get_models_schema(app_labels)
 
-    out_path = Path(output_file or project / DEFAULT_SCHEMA_FILE)
+    out_path = Path(output_file or Path.cwd() / DEFAULT_SCHEMA_FILE)
     out_path = out_path.resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    settings_module = os.environ.get("DJANGO_SETTINGS_MODULE", "")
     payload = {
         "schema": schema,
         "app_labels": app_labels,
         "settings_module": settings_module,
-        "project_path": str(project),
+        "project_path": "",
     }
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -217,12 +173,28 @@ def extract_and_save(
     }
 
 
+def extract_and_save(
+    output_file: str | Path | None = None,
+) -> dict:
+    """
+    Extract model schemas from the currently loaded Django and save to a JSON file.
+    Requires Django to be already configured (e.g. from Django shell or a running app).
+
+    Args:
+        output_file: Where to save the schema. Defaults to cwd/.django_lens_schema.json.
+
+    Returns:
+        {"schema": str, "app_labels": list[str], "output_path": str}
+    """
+    return extract_from_loaded_django(output_file=output_file)
+
+
 def load_schema(
     schema_file: str | Path | None = None,
     project_path: str | None = None,
 ) -> tuple[str, list[str]]:
     """
-    Load schema and app_labels from the cached JSON file.
+    Load schema and app_labels from a cached JSON file.
 
     Args:
         schema_file: Path to the schema JSON. If None, uses project_path or cwd.
@@ -240,7 +212,7 @@ def load_schema(
 
     if not path.exists():
         raise FileNotFoundError(
-            f"Schema file not found: {path}. Run extract_and_save(project_path) first."
+            f"Schema file not found: {path}. Run extract_and_save() first from Django shell."
         )
 
     data = json.loads(path.read_text(encoding="utf-8"))

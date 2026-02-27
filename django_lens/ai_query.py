@@ -1,83 +1,68 @@
 from __future__ import annotations
 
 import json
-import os
 
+from django.conf import settings
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from schema_extrator import (
-    DEFAULT_SCHEMA_FILE,
-    bootstrap_django,
-    extract_and_save,
-    load_schema,
-    get_models_schema,
-)
-from prompt_builder import build_messages
-from query_schema import AIQuerySchema, ChartType
-from queryset_builder import build_queryset, queryset_to_list
+from django_lens.schema_extrator import get_models_schema
+from django_lens.prompt_builder import build_messages
+from django_lens.query_schema import AIQuerySchema, ChartType
+from django_lens.queryset_builder import build_queryset, queryset_to_list
 
-load_dotenv()
 
-_api_key = os.getenv("GEMINI_API_KEY")
-if not _api_key:
-    raise RuntimeError(
-        "GEMINI_API_KEY is not set. Add it to your .env file or environment. "
-        "See .env.example for a sample configuration."
-    )
-_client = genai.Client(api_key=_api_key)
-_model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+def _get_client():
+    """Lazy-initialize Gemini client from Django settings."""
+    api_key = getattr(settings, "GEMINI_API_KEY", None)
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Add it to your Django settings.py. "
+            "Example: GEMINI_API_KEY = 'your_api_key_here'"
+        )
+    return genai.Client(api_key=api_key)
+
+
+def _get_model_name():
+    """Get model name from Django settings."""
+    return getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash")
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
 
 def run_ai_query(
     question: str,
-    project_path: str | None = None,
-    schema_file: str | None = None,
-    app_labels: list[str] | None = None,
+    app_labels: list[str],
     max_retries: int = 2,
 ) -> dict:
     """
     Full pipeline:
-      1. Load schema (from project_path or schema_file) or extract if needed
+      1. Build schema from Django models (via app_labels)
       2. Ask LLM to produce a structured query JSON
       3. Validate with Pydantic (retry on failure)
       4. Build and execute Django queryset
       5. Shape chart data if applicable
 
+    Requires Django to be configured (django.setup() called) and
+    GEMINI_API_KEY, GEMINI_MODEL set in settings.py.
+
     Args:
         question: Natural language query.
-        project_path: Path to Django project root (where manage.py lives).
-          If provided, schema is loaded from .django_lens_schema.json or
-          extracted and saved on first run.
-        schema_file: Override path to schema JSON. If omitted with project_path,
-          uses project_path/.django_lens_schema.json.
-        app_labels: Optional. For embedded use when Django is already configured;
-          schema is built via get_models_schema(app_labels). If project_path is
-          used, app_labels come from the cached schema.
-    """
-    if project_path:
-        from pathlib import Path
-        schema_path = Path(schema_file) if schema_file else Path(project_path) / DEFAULT_SCHEMA_FILE
-        if schema_path.exists():
-            bootstrap_django(project_path)
-            schema, resolved_app_labels = load_schema(schema_file=str(schema_path))
-        else:
-            result = extract_and_save(project_path, output_file=str(schema_path))
-            schema = result["schema"]
-            resolved_app_labels = result["app_labels"]
-        app_labels = resolved_app_labels
-    elif app_labels:
-        schema = get_models_schema(app_labels)
-    else:
-        raise ValueError("Provide either project_path or app_labels (with Django configured).")
+        app_labels: App labels to query (e.g. ["myapp", "orders"]).
+        max_retries: Number of retries if the AI returns invalid JSON or queryset fails.
 
+    Returns:
+        dict with success, question, query_schema, data, row_count, chart_type, chart_data
+    """
     if not app_labels:
-        raise ValueError("No app_labels available. Ensure INSTALLED_APPS contains project apps.")
+        raise ValueError("app_labels is required. Provide the Django app labels to query.")
+
+    schema = get_models_schema(app_labels)
     payload = build_messages(schema, question)
+
+    client = _get_client()
+    model_name = _get_model_name()
 
     last_error: str = ""
     messages = payload["messages"]
@@ -93,8 +78,8 @@ def run_ai_query(
                 contents.append(types.ModelContent(parts=[part]))
 
         # ── LLM call ──────────────────────────────────────────────────────
-        response = _client.models.generate_content(
-            model=_model_name,
+        response = client.models.generate_content(
+            model=model_name,
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=payload["system"],
@@ -137,10 +122,13 @@ def run_ai_query(
         if query_schema.chart_type != ChartType.NONE and query_schema.aggregations:
             chart_data = shape_chart_data(data, query_schema)
 
+        django_query = _build_django_query_string(query_schema)
+
         return {
             "success": True,
             "question": question,
             "query_schema": raw_json,       # Transparent — frontend can show this
+            "django_query": django_query,   # Django ORM chain for debugging
             "data": data,
             "row_count": len(data),
             "chart_type": query_schema.chart_type.value,
@@ -152,6 +140,65 @@ def run_ai_query(
         f"AI query failed after {max_retries + 1} attempts. "
         f"Last error: {last_error}"
     )
+
+
+# ── Django query string (debug) ───────────────────────────────────────────
+
+def _build_django_query_string(schema: AIQuerySchema) -> str:
+    """
+    Build a Python-style Django ORM chain string for debugging.
+    Example: Author.objects.filter(age__gte=30).select_related('publisher').values('name')[:10]
+    """
+    model = schema.model
+    parts = [f"{model}.objects.all()"]
+
+    # select_related / prefetch_related
+    if schema.joins:
+        forward = [j.from_field for j in schema.joins if "_set" not in j.from_field]
+        reverse = [j.from_field for j in schema.joins if "_set" in j.from_field]
+        if forward:
+            args = ", ".join(repr(p) for p in forward)
+            parts.append(f".select_related({args})")
+        if reverse:
+            args = ", ".join(repr(p) for p in reverse)
+            parts.append(f".prefetch_related({args})")
+
+    # filter
+    for f in schema.filters:
+        lookup = f"{f.field}__{f.operator.value}"
+        parts.append(f".filter({lookup}={f.value!r})")
+
+    # values (group_by or select_fields)
+    if schema.group_by:
+        args = ", ".join(repr(f) for f in schema.group_by)
+        parts.append(f".values({args})")
+    elif schema.select_fields:
+        args = ", ".join(repr(f) for f in schema.select_fields)
+        parts.append(f".values({args})")
+
+    # annotate
+    if schema.aggregations:
+        agg_map = {"count": "Count", "sum": "Sum", "avg": "Avg", "max": "Max", "min": "Min"}
+        ann_args = []
+        for agg in schema.aggregations:
+            cls = agg_map.get(agg.operation.value, "Count")
+            ann_args.append(f"{agg.alias}={cls}('{agg.field}')")
+        parts.append(f".annotate({', '.join(ann_args)})")
+
+    # order_by
+    if schema.order_by:
+        fields = [
+            f"-{o.field}" if o.direction == "desc" else o.field
+            for o in schema.order_by
+        ]
+        args = ", ".join(repr(f) for f in fields)
+        parts.append(f".order_by({args})")
+
+    # limit
+    if schema.limit:
+        parts.append(f"[:{schema.limit}]")
+
+    return "".join(parts)
 
 
 # ── Retry helper ───────────────────────────────────────────────────────────
