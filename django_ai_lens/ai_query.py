@@ -72,7 +72,7 @@ def run_ai_query(
     app_labels: list[str] | None = None,
     max_retries: int = 2,
     force_regenerate_schema: bool = False,
-    raw_output: bool = True,
+    human_friendly_result: bool = False,
 ) -> dict:
     """
     Full pipeline:
@@ -92,12 +92,12 @@ def run_ai_query(
         max_retries: Number of retries if the AI returns invalid JSON or queryset fails.
         force_regenerate_schema: If True, regenerates and saves the schema JSON file
             (via extract_and_save) before running the query. Use when models have changed.
-        raw_output: If True (default), returns the raw queryset data. If False, makes a
-            second LLM call to render the result as a human-friendly summary/answer.
+        human_friendly_result: If True, makes a second LLM call to render the result as a
+            human-friendly summary/answer. If False (default), returns raw queryset data only.
 
     Returns:
         dict with success, question, query_schema, data, row_count, chart_type, chart_data.
-        When raw_output=False, also includes human_friendly_result (LLM-rendered summary).
+        When human_friendly_result=True, also includes human_friendly_result (LLM-rendered summary).
     """
     if app_labels is None:
         app_labels = _get_installed_app_labels_from_settings()
@@ -187,7 +187,7 @@ def run_ai_query(
             "chart_data": chart_data,
         }
 
-        if not raw_output:
+        if human_friendly_result:
             result["human_friendly_result"] = _render_human_friendly_result(
                 client=client,
                 model_name=model_name,
@@ -263,7 +263,7 @@ def _build_django_query_string(schema: AIQuerySchema) -> str:
     return "".join(parts)
 
 
-# ── Human-friendly result (raw_output=False) ────────────────────────────────
+# ── Human-friendly result (human_friendly_result=True) ───────────────────────
 
 def _render_human_friendly_result(
     client: genai.Client,

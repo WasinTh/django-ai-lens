@@ -8,6 +8,7 @@
 - **Schema extraction**: Automatically crawls your Django project for models, fields, and relationships
 - **AI-powered**: Uses Google Gemini to interpret questions and produce structured query JSON
 - **Chart-ready output**: Returns data shaped for bar, line, pie, doughnut, radar, and scatter charts
+- **Human-friendly summaries**: Optional second LLM pass to render queryset results as plain-language answers
 - **Safe & validated**: Pydantic schemas and field validation prevent SQL injection and unsafe operations
 
 ## Requirements
@@ -47,6 +48,7 @@ result = run_ai_query(
     question="Total revenue per customer country in 2024, as a bar chart",
     app_labels=["myapp", "orders"],  # Optional: omit to use all apps from INSTALLED_APPS
     force_regenerate_schema=False,   # Set True when models have changed
+    human_friendly_result=False,     # Set True for human-friendly LLM summary (see below)
 )
 
 print(result["data"])        # List of dicts (rows)
@@ -71,6 +73,19 @@ print(result["query_schema"])  # The AI-generated query structure
         "chart_type": "bar"
     }
 }
+```
+
+### Human-friendly result (`human_friendly_result=True`)
+
+When `human_friendly_result=True`, the pipeline runs a second LLM call with the queryset result and the original question to produce a plain-language answer. Useful for chatbots or when you want to show users a readable summary instead of raw data:
+
+```python
+result = run_ai_query(
+    question="How many users signed up last month?",
+    human_friendly_result=True,
+)
+print(result["human_friendly_result"])  # e.g. "42 users signed up last month."
+# result["data"] is still available with the raw rows
 ```
 
 ### Example: Django view
@@ -174,7 +189,7 @@ django-ai-lens/
 
 ## API reference
 
-### `run_ai_query(question, app_labels=None, max_retries=2, force_regenerate_schema=False)`
+### `run_ai_query(question, app_labels=None, max_retries=2, force_regenerate_schema=False, human_friendly_result=False)`
 
 Runs the full pipeline: build schema from Django models → ask LLM → validate → build queryset → return data.
 
@@ -184,8 +199,9 @@ Runs the full pipeline: build schema from Django models → ask LLM → validate
 | `app_labels`              | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins). |
 | `max_retries`             | `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
 | `force_regenerate_schema` | `bool` | If `True`, regenerates and saves the schema JSON file before running the query. Use when models have changed. |
+| `human_friendly_result`   | `bool` | If `True`, runs a second LLM call to add `human_friendly_result` (plain-language summary). If `False` (default), returns raw queryset data only. |
 
-**Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`
+**Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`. When `human_friendly_result=True`, also includes `human_friendly_result`.
 
 **Raises:** `ValueError` if no app labels are available (empty `app_labels` and no apps in `INSTALLED_APPS`); `RuntimeError` if `GEMINI_API_KEY` is not set or all retries fail.
 
