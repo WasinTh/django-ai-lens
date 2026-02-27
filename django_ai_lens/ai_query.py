@@ -14,7 +14,11 @@ from django_ai_lens.schema_extrator import (
 )
 from django_ai_lens.prompt_builder import build_messages, build_human_friendly_result_prompt
 from django_ai_lens.query_schema import AIQuerySchema, ChartType
-from django_ai_lens.queryset_builder import build_queryset, queryset_to_list
+from django_ai_lens.queryset_builder import (
+    build_queryset,
+    queryset_to_list,
+    resolve_model,
+)
 
 
 def _get_client():
@@ -149,6 +153,7 @@ def run_ai_query(
             raw_json = json.loads(raw_text)
         except json.JSONDecodeError as e:
             last_error = f"Invalid JSON on attempt {attempt}: {e}"
+            print(f"[AI Query attempt {attempt}] Error: {last_error}")
             messages = _append_retry_message(messages, raw_text, last_error)
             continue
 
@@ -157,15 +162,21 @@ def run_ai_query(
             query_schema = AIQuerySchema(**raw_json)
         except ValidationError as e:
             last_error = f"Schema validation failed on attempt {attempt}:\n{e}"
+            print(f"[AI Query attempt {attempt}] Error: {last_error}")
             messages = _append_retry_message(messages, raw_text, last_error)
             continue
 
         # ── Queryset execution ────────────────────────────────────────────
         try:
             qs = build_queryset(query_schema, app_labels)
+            django_query = _build_django_query_string(query_schema, app_labels)
+            # Debug: print Django queryset and SQL
+            print(f"[AI Query attempt {attempt}] Django queryset (debug): {django_query}")
+            print(f"[AI Query attempt {attempt}] SQL (debug): {qs.query}")
             data = queryset_to_list(qs)
         except Exception as e:
             last_error = f"Queryset error on attempt {attempt}: {e}"
+            print(f"[AI Query attempt {attempt}] Error: {last_error}")
             messages = _append_retry_message(messages, raw_text, last_error)
             continue
 
@@ -173,8 +184,6 @@ def run_ai_query(
         chart_data = None
         if query_schema.chart_type != ChartType.NONE and query_schema.aggregations:
             chart_data = shape_chart_data(data, query_schema)
-
-        django_query = _build_django_query_string(query_schema)
 
         result = {
             "success": True,
@@ -206,23 +215,31 @@ def run_ai_query(
 
 # ── Django query string (debug) ───────────────────────────────────────────
 
-def _build_django_query_string(schema: AIQuerySchema) -> str:
+def _build_django_query_string(schema: AIQuerySchema, app_labels: list[str]) -> str:
     """
     Build a Python-style Django ORM chain string for debugging.
     Example: Author.objects.filter(age__gte=30).select_related('publisher').values('name')[:10]
     """
-    model = schema.model
-    parts = [f"{model}.objects.all()"]
+    from django_ai_lens.queryset_builder import _is_prefetch_relation
 
-    # select_related / prefetch_related
+    model_name = schema.model
+    parts = [f"{model_name}.objects.all()"]
+
+    # select_related / prefetch_related (use model metadata for correct detection)
     if schema.joins:
-        forward = [j.from_field for j in schema.joins if "_set" not in j.from_field]
-        reverse = [j.from_field for j in schema.joins if "_set" in j.from_field]
+        try:
+            model = resolve_model(model_name, app_labels)
+            forward = [j.from_field for j in schema.joins if not _is_prefetch_relation(model, j.from_field)]
+            prefetch = [j.from_field for j in schema.joins if _is_prefetch_relation(model, j.from_field)]
+        except Exception:
+            # Fallback heuristic if model can't be resolved
+            forward = [j.from_field for j in schema.joins if "_set" not in j.from_field]
+            prefetch = [j.from_field for j in schema.joins if "_set" in j.from_field]
         if forward:
             args = ", ".join(repr(p) for p in forward)
             parts.append(f".select_related({args})")
-        if reverse:
-            args = ", ".join(repr(p) for p in reverse)
+        if prefetch:
+            args = ", ".join(repr(p) for p in prefetch)
             parts.append(f".prefetch_related({args})")
 
     # filter

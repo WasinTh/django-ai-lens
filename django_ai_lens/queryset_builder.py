@@ -6,7 +6,8 @@ from django.db.models import (
     QuerySet, Q,
     Prefetch,
 )
-from django.db.models import fields as django_fields
+from django.db.models.fields.related import ManyToManyField
+from django.db.models.fields.reverse_related import ManyToOneRel, ManyToManyRel, OneToOneRel
 
 from django_ai_lens.query_schema import (
     AIQuerySchema,
@@ -43,34 +44,39 @@ def resolve_model(model_name: str, app_labels: list[str]):
     )
 
 
-# ── Select-related path builder ────────────────────────────────────────────
+# ── Select-related vs prefetch-related (relation type detection) ──────────────
 
-def _build_select_related_paths(joins: list[JoinSchema]) -> list[str]:
-    """
-    Collect FK / OneToOne paths for select_related().
-    These are the `from_field` values that do NOT contain _set
-    (i.e. forward relations only).
-    """
-    paths = []
-    for join in joins:
-        if "_set" not in join.from_field:
-            paths.append(join.from_field)
-    return paths
+# Forward FK / OneToOne → select_related (single SQL JOIN)
+# Reverse FK, reverse M2M, forward M2M → prefetch_related (separate query)
+PREFETCH_FIELD_TYPES = (ManyToOneRel, OneToOneRel, ManyToManyRel, ManyToManyField)
 
 
-def _build_prefetch_paths(joins: list[JoinSchema]) -> list[str]:
+def _is_prefetch_relation(model, path: str) -> bool:
     """
-    Collect reverse FK / M2M paths for prefetch_related().
-    These contain _set or are M2M accessors.
+    Determine if a relation path requires prefetch_related (True) or
+    select_related (False).
+
+    - Forward ForeignKey / OneToOne (all segments) → select_related
+    - Any segment is reverse FK, M2M, or reverse M2M → prefetch_related
+
+    Example: ticket__plantation_sources__plantation — plantation_sources is
+    reverse (related_name), so the whole path must use prefetch_related.
     """
-    paths = []
-    for join in joins:
-        if "_set" in join.from_field or "__" in join.from_field:
-            # Only prefetch top-level reverse relations; nested ones
-            # (like orderitem__product) handled via select_related once
-            # the intermediate join is set up.
-            paths.append(join.from_field)
-    return paths
+    segments = path.split("__")
+    current_model = model
+    for segment in segments:
+        try:
+            field = current_model._meta.get_field(segment)
+        except Exception:
+            return True  # Can't resolve → prefetch to be safe
+        if isinstance(field, PREFETCH_FIELD_TYPES) or not field.concrete:
+            return True  # Reverse or M2M anywhere in path → prefetch
+        # Move to related model for next segment
+        if hasattr(field, "related_model") and field.related_model:
+            current_model = field.related_model
+        else:
+            break
+    return False
 
 
 # ── Annotated aggregation builder ─────────────────────────────────────────
@@ -128,9 +134,9 @@ def build_queryset(schema: AIQuerySchema, app_labels: list[str]) -> QuerySet:
 
         for join in schema.joins:
             path = join.from_field
-            is_reverse = "_set" in path
+            needs_prefetch = _is_prefetch_relation(model, path)
 
-            if is_reverse:
+            if needs_prefetch:
                 if not has_aggregations:
                     # Only prefetch when we actually need to iterate the reverse set
                     prefetch_paths.append(path)
