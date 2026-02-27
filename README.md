@@ -19,7 +19,7 @@
 ## Installation
 
 ```bash
-pip install django-lens
+pip install django-ai-lens
 ```
 
 ## Configuration
@@ -147,7 +147,7 @@ The AI understands a wide range of questions, such as:
 ## Project structure
 
 ```
-django-lens/
+django-ai-lens/
 ├── django_lens/
 │   ├── __init__.py
 │   ├── ai_query.py          # Main entry: run_ai_query()
