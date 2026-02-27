@@ -189,4 +189,4 @@ Loads schema and app_labels from a cached JSON file (e.g. produced by `extract_a
 
 ## License
 
-See the project repository for license information.
+MIT License. See [LICENSE](LICENSE) for details.

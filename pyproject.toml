@@ -7,7 +7,7 @@ name = "django-ai-lens"
 version = "0.1.0"
 description = "Natural language queries for Django models, powered by AI"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "Django AI Lens" }]
 keywords = ["django", "ai", "llm", "gemini", "natural-language", "orm"]
