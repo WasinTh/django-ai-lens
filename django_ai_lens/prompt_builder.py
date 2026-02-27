@@ -154,3 +154,24 @@ def build_messages(schema: str, question: str) -> dict:
         "system": messages[0].content,
         "messages": [{"role": "user", "content": messages[1].content}],
     }
+
+
+HUMAN_FRIENDLY_RESULT_TEMPLATE = """
+The user asked: {question}
+
+Here is the data we fetched from the database:
+
+{data}
+
+Based on this data, provide a clear, human-friendly answer or summary.
+Format it in a way that directly addresses the user's question.
+Use plain text or markdown or graphic image as appropriate.
+"""
+
+
+def build_human_friendly_result_prompt(question: str, data: str) -> str:
+    """
+    Build the prompt for the LLM to render queryset results as a human-friendly
+    summary/answer.
+    """
+    return HUMAN_FRIENDLY_RESULT_TEMPLATE.format(question=question, data=data)

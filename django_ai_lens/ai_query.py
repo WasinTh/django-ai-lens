@@ -12,7 +12,7 @@ from django_ai_lens.schema_extrator import (
     extract_and_save,
     get_models_schema,
 )
-from django_ai_lens.prompt_builder import build_messages
+from django_ai_lens.prompt_builder import build_messages, build_human_friendly_result_prompt
 from django_ai_lens.query_schema import AIQuerySchema, ChartType
 from django_ai_lens.queryset_builder import build_queryset, queryset_to_list
 
@@ -72,6 +72,7 @@ def run_ai_query(
     app_labels: list[str] | None = None,
     max_retries: int = 2,
     force_regenerate_schema: bool = False,
+    raw_output: bool = True,
 ) -> dict:
     """
     Full pipeline:
@@ -91,9 +92,12 @@ def run_ai_query(
         max_retries: Number of retries if the AI returns invalid JSON or queryset fails.
         force_regenerate_schema: If True, regenerates and saves the schema JSON file
             (via extract_and_save) before running the query. Use when models have changed.
+        raw_output: If True (default), returns the raw queryset data. If False, makes a
+            second LLM call to render the result as a human-friendly summary/answer.
 
     Returns:
-        dict with success, question, query_schema, data, row_count, chart_type, chart_data
+        dict with success, question, query_schema, data, row_count, chart_type, chart_data.
+        When raw_output=False, also includes human_friendly_result (LLM-rendered summary).
     """
     if app_labels is None:
         app_labels = _get_installed_app_labels_from_settings()
@@ -172,7 +176,7 @@ def run_ai_query(
 
         django_query = _build_django_query_string(query_schema)
 
-        return {
+        result = {
             "success": True,
             "question": question,
             "query_schema": raw_json,       # Transparent — frontend can show this
@@ -182,6 +186,16 @@ def run_ai_query(
             "chart_type": query_schema.chart_type.value,
             "chart_data": chart_data,
         }
+
+        if not raw_output:
+            result["human_friendly_result"] = _render_human_friendly_result(
+                client=client,
+                model_name=model_name,
+                question=question,
+                data=data,
+            )
+
+        return result
 
     # All retries exhausted
     raise RuntimeError(
@@ -247,6 +261,28 @@ def _build_django_query_string(schema: AIQuerySchema) -> str:
         parts.append(f"[:{schema.limit}]")
 
     return "".join(parts)
+
+
+# ── Human-friendly result (raw_output=False) ────────────────────────────────
+
+def _render_human_friendly_result(
+    client: genai.Client,
+    model_name: str,
+    question: str,
+    data: list[dict],
+) -> str:
+    """
+    Call the LLM with the question and queryset result to produce a
+    human-friendly summary/answer.
+    """
+    data_str = json.dumps(data, indent=2, default=str)
+    prompt = build_human_friendly_result_prompt(question=question, data=data_str)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=[types.UserContent(parts=[types.Part.from_text(text=prompt)])],
+        config=types.GenerateContentConfig(max_output_tokens=2048),
+    )
+    return response.text.strip()
 
 
 # ── Retry helper ───────────────────────────────────────────────────────────
