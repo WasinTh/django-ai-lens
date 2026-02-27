@@ -7,7 +7,10 @@ from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
-from django_ai_lens.schema_extrator import get_models_schema
+from django_ai_lens.schema_extrator import (
+    _get_installed_app_labels_from_settings,
+    get_models_schema,
+)
 from django_ai_lens.prompt_builder import build_messages
 from django_ai_lens.query_schema import AIQuerySchema, ChartType
 from django_ai_lens.queryset_builder import build_queryset, queryset_to_list
@@ -33,7 +36,7 @@ def _get_model_name():
 
 def run_ai_query(
     question: str,
-    app_labels: list[str],
+    app_labels: list[str] | None = None,
     max_retries: int = 2,
 ) -> dict:
     """
@@ -49,14 +52,20 @@ def run_ai_query(
 
     Args:
         question: Natural language query.
-        app_labels: App labels to query (e.g. ["myapp", "orders"]).
+        app_labels: App labels to query (e.g. ["myapp", "orders"]). If None,
+            uses all installed apps from settings.INSTALLED_APPS (excluding Django built-ins).
         max_retries: Number of retries if the AI returns invalid JSON or queryset fails.
 
     Returns:
         dict with success, question, query_schema, data, row_count, chart_type, chart_data
     """
+    if app_labels is None:
+        app_labels = _get_installed_app_labels_from_settings()
     if not app_labels:
-        raise ValueError("app_labels is required. Provide the Django app labels to query.")
+        raise ValueError(
+            "No app labels available. Provide app_labels explicitly, or ensure "
+            "INSTALLED_APPS in settings.py contains your Django apps."
+        )
 
     schema = get_models_schema(app_labels)
     payload = build_messages(schema, question)

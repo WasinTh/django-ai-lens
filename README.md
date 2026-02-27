@@ -45,7 +45,7 @@ from django_ai_lens import run_ai_query
 
 result = run_ai_query(
     question="Total revenue per customer country in 2024, as a bar chart",
-    app_labels=["myapp", "orders"],  # Your Django app labels
+    app_labels=["myapp", "orders"],  # Optional: omit to use all apps from INSTALLED_APPS
 )
 
 print(result["data"])        # List of dicts (rows)
@@ -161,19 +161,19 @@ django-ai-lens/
 
 ## API reference
 
-### `run_ai_query(question, app_labels, max_retries=2)`
+### `run_ai_query(question, app_labels=None, max_retries=2)`
 
 Runs the full pipeline: build schema from Django models → ask LLM → validate → build queryset → return data.
 
 | Argument     | Type   | Description |
 |--------------|--------|--------------|
 | `question`   | `str`  | Natural language query |
-| `app_labels` | `list` | Django app labels to query (e.g. `["myapp", "orders"]`) |
+| `app_labels` | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins). |
 | `max_retries`| `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
 
 **Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`
 
-**Raises:** `ValueError` if `app_labels` is empty; `RuntimeError` if `GEMINI_API_KEY` is not set or all retries fail.
+**Raises:** `ValueError` if no app labels are available (empty `app_labels` and no apps in `INSTALLED_APPS`); `RuntimeError` if `GEMINI_API_KEY` is not set or all retries fail.
 
 ### `extract_and_save(output_file=None)`
 
