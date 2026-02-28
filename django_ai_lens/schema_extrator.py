@@ -47,7 +47,7 @@ def _get_installed_app_labels_from_settings() -> list[str]:
     return app_labels
 
 
-def get_models_schema(app_labels: list[str]) -> str:
+def get_models_schema(app_labels: list[str], include_help_text: bool = False) -> str:
     """
     Produce a detailed plain-text schema description including:
     - All fields with types
@@ -55,6 +55,10 @@ def get_models_schema(app_labels: list[str]) -> str:
     - Reverse relation accessor names
 
     Requires Django to be already configured (django.setup() called).
+
+    Args:
+        app_labels: App labels to include.
+        include_help_text: If True, include field help_text in the schema.
     """
     from django.apps import apps
 
@@ -89,7 +93,7 @@ def get_models_schema(app_labels: list[str]) -> str:
 
             field_type = type(field).__name__
             help_text = getattr(field, "help_text", None) or ""
-            help_suffix = f" — {help_text}" if help_text else ""
+            help_suffix = f" — {help_text}" if (include_help_text and help_text) else ""
 
             if field.is_relation and field.concrete:
                 related_model = field.related_model
@@ -135,7 +139,7 @@ def get_models_schema(app_labels: list[str]) -> str:
                 else "auto"
             )
             help_text = getattr(field, "help_text", None) or ""
-            help_suffix = f" — {help_text}" if help_text else ""
+            help_suffix = f" — {help_text}" if (include_help_text and help_text) else ""
             m2m_lines.append(
                 f"    - {field.name}: ManyToManyField → {related_name}"
                 f"{help_suffix}"

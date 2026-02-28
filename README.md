@@ -49,6 +49,7 @@ result = run_ai_query(
     app_labels=["myapp", "orders"],  # Optional: omit to use all apps from INSTALLED_APPS
     force_regenerate_schema=False,   # Set True when models have changed
     human_friendly_result=False,     # Set True for human-friendly LLM summary (see below)
+    include_help_text=False,        # Set True to include Django field help_text in schema
 )
 
 print(result["data"])        # List of dicts (rows)
@@ -189,7 +190,7 @@ django-ai-lens/
 
 ## API reference
 
-### `run_ai_query(question, app_labels=None, max_retries=2, force_regenerate_schema=False, human_friendly_result=False)`
+### `run_ai_query(question, app_labels=None, max_retries=2, force_regenerate_schema=False, human_friendly_result=False, include_help_text=False)`
 
 Runs the full pipeline: build schema from Django models → ask LLM → validate → build queryset → return data.
 
@@ -200,6 +201,7 @@ Runs the full pipeline: build schema from Django models → ask LLM → validate
 | `max_retries`             | `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
 | `force_regenerate_schema` | `bool` | If `True`, regenerates and saves the schema JSON file before running the query. Use when models have changed. |
 | `human_friendly_result`   | `bool` | If `True`, runs a second LLM call to add `human_friendly_result` (plain-language summary). If `False` (default), returns raw queryset data only. |
+| `include_help_text`       | `bool` | If `True`, includes Django field `help_text` in the schema sent to the LLM. If `False` (default), schema contains only field types and relations. |
 
 **Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`. When `human_friendly_result=True`, also includes `human_friendly_result`.
 

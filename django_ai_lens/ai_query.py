@@ -77,6 +77,7 @@ def run_ai_query(
     max_retries: int = 2,
     force_regenerate_schema: bool = False,
     human_friendly_result: bool = False,
+    include_help_text: bool = False,
 ) -> dict:
     """
     Full pipeline:
@@ -98,6 +99,8 @@ def run_ai_query(
             (via extract_and_save) before running the query. Use when models have changed.
         human_friendly_result: If True, makes a second LLM call to render the result as a
             human-friendly summary/answer. If False (default), returns raw queryset data only.
+        include_help_text: If True, include Django field help_text in the schema sent to the LLM.
+            If False (default), schema contains only field types and relations.
 
     Returns:
         dict with success, question, query_schema, data, row_count, chart_type, chart_data.
@@ -114,7 +117,7 @@ def run_ai_query(
     if force_regenerate_schema:
         extract_and_save()
 
-    schema = get_models_schema(app_labels)
+    schema = get_models_schema(app_labels, include_help_text=include_help_text)
     payload = build_messages(schema, question)
 
     client = _get_client()
