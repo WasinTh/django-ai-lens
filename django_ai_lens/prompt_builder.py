@@ -159,19 +159,43 @@ def build_messages(schema: str, question: str) -> dict:
 HUMAN_FRIENDLY_RESULT_TEMPLATE = """
 The user asked: {question}
 
-Here is the data we fetched from the database:
+Here is the Django ORM queryset that was executed to answer the question:
+
+{django_query}
+
+Here is the data fetched from the database. This data is ALREADY the result of the query:
+filters (e.g. username, date range, specific criteria) have been applied. The rows you see
+are exactly those that match the user's question — filtering criteria do not need to appear
+as columns in the result.
 
 {data}
 
-Based on this data, provide a clear, human-friendly answer or summary.
-Format it in a way that directly addresses the user's question.
-Use plain text or markdown or graphic image as appropriate.
+IMPORTANT:
+- The Django queryset above shows what filters and aggregations were applied. Use it to
+  understand the intent (e.g. filtered by username, month, year; summed paid_amount, etc.).
+- Do NOT refuse to answer because criteria mentioned in the question (e.g. username, salesperson)
+  are not visible as columns. Those were applied during the query; this data IS the filtered result.
+- Extract and present the relevant values directly. If the data contains aggregation fields
+  (e.g. total_sales_amount, sum, count, paid_amount), those ARE the answer — state them clearly.
+- For questions like "how many baht" or "total amount", use total_sales_amount, paid_amount,
+  or similar numeric fields as the answer. Include the currency/unit (บาท, baht, etc.) when appropriate.
+- Provide a clear, direct answer that addresses the user's question. Use the same language as the question
+  when possible (e.g. Thai if the question was in Thai).
+- Format as plain text or markdown as appropriate. Be concise but complete.
 """
 
 
-def build_human_friendly_result_prompt(question: str, data: str) -> str:
+def build_human_friendly_result_prompt(
+    question: str,
+    data: str,
+    django_query: str,
+) -> str:
     """
     Build the prompt for the LLM to render queryset results as a human-friendly
     summary/answer.
     """
-    return HUMAN_FRIENDLY_RESULT_TEMPLATE.format(question=question, data=data)
+    return HUMAN_FRIENDLY_RESULT_TEMPLATE.format(
+        question=question,
+        data=data,
+        django_query=django_query,
+    )

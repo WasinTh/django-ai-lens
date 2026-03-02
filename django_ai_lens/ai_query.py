@@ -210,6 +210,7 @@ def run_ai_query(
                 model_name=model_name,
                 question=question,
                 data=data,
+                django_query=django_query,
             )
 
         return result
@@ -295,13 +296,18 @@ def _render_human_friendly_result(
     model_name: str,
     question: str,
     data: list[dict],
+    django_query: str,
 ) -> str:
     """
-    Call the LLM with the question and queryset result to produce a
-    human-friendly summary/answer.
+    Call the LLM with the question, Django queryset, and result data to produce
+    a human-friendly summary/answer.
     """
     data_str = json.dumps(data, indent=2, default=str)
-    prompt = build_human_friendly_result_prompt(question=question, data=data_str)
+    prompt = build_human_friendly_result_prompt(
+        question=question,
+        data=data_str,
+        django_query=django_query,
+    )
     response = client.models.generate_content(
         model=model_name,
         contents=[types.UserContent(parts=[types.Part.from_text(text=prompt)])],
