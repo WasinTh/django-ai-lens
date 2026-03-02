@@ -16,11 +16,29 @@ from pathlib import Path
 DEFAULT_SCHEMA_FILE = ".django_ai_lens_schema.json"
 
 
+def _get_exclude_apps_from_settings() -> list[str]:
+    """
+    Get app labels to exclude from schema and queryset.
+    Defaults to ["auth"] to protect sensitive User model.
+    Override in settings: EXCLUDE_APPS = []  # allow all apps
+    """
+    from django.conf import settings
+
+    return getattr(settings, "EXCLUDE_APPS", ["auth"])
+
+
+def _filter_excluded_apps(app_labels: list[str]) -> list[str]:
+    """Remove apps in EXCLUDE_APPS from the given app_labels."""
+    exclude = _get_exclude_apps_from_settings()
+    return [label for label in app_labels if label not in exclude]
+
+
 def _get_installed_app_labels_from_settings() -> list[str]:
     """
     Extract app labels from INSTALLED_APPS using Django's app registry.
     Use when Django is already configured (e.g. from Django shell).
-    Returns actual app labels (e.g. 'common', 'bplus') excluding Django built-ins.
+    Returns actual app labels (e.g. 'common', 'bplus') excluding Django built-ins
+    and apps in EXCLUDE_APPS (default: ["auth"] to protect User model).
     Uses apps.get_app_configs() so 'apps.common' → 'common', not 'apps'.
     """
     from django.apps import apps
@@ -44,7 +62,7 @@ def _get_installed_app_labels_from_settings() -> list[str]:
                 seen.add(app.label)
                 app_labels.append(app.label)
 
-    return app_labels
+    return _filter_excluded_apps(app_labels)
 
 
 def get_models_schema(app_labels: list[str], include_help_text: bool = False) -> str:

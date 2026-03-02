@@ -33,6 +33,9 @@ GEMINI_API_KEY = "your_gemini_api_key_here"
 
 # Optional (defaults to gemini-2.5-flash)
 GEMINI_MODEL = "gemini-2.5-flash"  # or gemini-1.5-pro, gemini-2.0-flash, etc.
+
+# Optional — apps to exclude from schema and queryset (default: ["auth"] to protect User model)
+EXCLUDE_APPS = ["auth"]  # or [] to allow all installed apps
 ```
 
 Get your API key at [Google AI Studio](https://aistudio.google.com/apikey).
@@ -197,7 +200,7 @@ Runs the full pipeline: build schema from Django models → ask LLM → validate
 | Argument                  | Type   | Description |
 |---------------------------|--------|--------------|
 | `question`                | `str`  | Natural language query |
-| `app_labels`              | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins). |
+| `app_labels`              | `list`, optional | Django app labels to query (e.g. `["myapp", "orders"]`). If omitted, uses all apps from `INSTALLED_APPS` (excluding Django built-ins and apps in `EXCLUDE_APPS`). Explicitly passed apps are also filtered by `EXCLUDE_APPS`. |
 | `max_retries`             | `int`  | Number of retries if the AI returns invalid JSON or queryset fails |
 | `force_regenerate_schema` | `bool` | If `True`, regenerates and saves the schema JSON file before running the query. Use when models have changed. |
 | `human_friendly_result`   | `bool` | If `True`, runs a second LLM call to add `human_friendly_result` (plain-language summary). If `False` (default), returns raw queryset data only. |
@@ -206,6 +209,8 @@ Runs the full pipeline: build schema from Django models → ask LLM → validate
 **Returns:** `dict` with `success`, `question`, `query_schema`, `data`, `row_count`, `chart_type`, `chart_data`. When `human_friendly_result=True`, also includes `human_friendly_result`.
 
 **Raises:** `ValueError` if no app labels are available (empty `app_labels` and no apps in `INSTALLED_APPS`); `RuntimeError` if `GEMINI_API_KEY` is not set or all retries fail.
+
+**Configuration:** `EXCLUDE_APPS` in `settings.py` (default: `["auth"]`) excludes app labels from schema and queryset. This prevents sensitive models like Django's `User` from being queryable. Set `EXCLUDE_APPS = []` to allow all apps.
 
 ### `generate_schema(app_labels=None)`
 

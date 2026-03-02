@@ -8,6 +8,7 @@ from google.genai import types
 from pydantic import ValidationError
 
 from django_ai_lens.schema_extrator import (
+    _filter_excluded_apps,
     _get_installed_app_labels_from_settings,
     extract_and_save,
     get_models_schema,
@@ -55,6 +56,8 @@ def generate_schema(app_labels: list[str] | None = None) -> str:
     """
     if app_labels is None:
         app_labels = _get_installed_app_labels_from_settings()
+    else:
+        app_labels = _filter_excluded_apps(app_labels)
     if not app_labels:
         raise ValueError(
             "No app labels available. Provide app_labels explicitly, or ensure "
@@ -108,6 +111,8 @@ def run_ai_query(
     """
     if app_labels is None:
         app_labels = _get_installed_app_labels_from_settings()
+    else:
+        app_labels = _filter_excluded_apps(app_labels)
     if not app_labels:
         raise ValueError(
             "No app labels available. Provide app_labels explicitly, or ensure "
