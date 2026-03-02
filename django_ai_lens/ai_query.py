@@ -123,7 +123,11 @@ def run_ai_query(
         extract_and_save()
 
     schema = get_models_schema(app_labels, include_help_text=include_help_text)
-    payload = build_messages(schema, question)
+    payload = build_messages(
+        schema,
+        question,
+        human_friendly_result=human_friendly_result,
+    )
 
     client = _get_client()
     model_name = _get_model_name()

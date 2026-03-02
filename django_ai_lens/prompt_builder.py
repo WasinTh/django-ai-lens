@@ -83,6 +83,7 @@ GENERAL RULES
 - limit should be null unless the user asks for top-N.
 - If the question implies a chart, set chart_type accordingly.
 - Return ONLY the JSON — no surrounding text.
+{output_mode_section}
 
 ══════════════════════════════════════════════════════
 SCHEMA
@@ -92,7 +93,11 @@ SCHEMA
 ══════════════════════════════════════════════════════
 EXAMPLES
 ══════════════════════════════════════════════════════
-Q: "Total revenue per customer country in 2024, as a bar chart"
+{examples}
+"""
+
+# Machine mode: examples for chart/frontend output (grouped lists)
+MACHINE_EXAMPLES = """Q: "Total revenue per customer country in 2024, as a bar chart"
 A:
 {{
   "model": "Order",
@@ -133,6 +138,46 @@ A:
 }}
 """
 
+# Human mode: instruction + examples for aggregated single-row vs list
+HUMAN_OUTPUT_MODE_SECTION = """
+
+══════════════════════════════════════════════════════
+OUTPUT MODE: HUMAN-FRIENDLY (aggregated when appropriate)
+══════════════════════════════════════════════════════
+The result will be rendered as a direct answer. Prefer a SINGLE aggregated row
+when the question asks for a total/sum/count/summary; use group_by/limit only
+when the question explicitly asks for breakdown or top-N.
+"""
+
+HUMAN_EXAMPLES = """Q: "What is the total sale of user John?"
+A:
+{{
+  "model": "Sale",
+  "joins": [{{"model": "User", "from_field": "user", "join_type": "inner"}}],
+  "filters": [{{"field": "user__username", "operator": "exact", "value": "John"}}],
+  "aggregations": [{{"field": "amount", "operation": "sum", "alias": "total_sale"}}],
+  "group_by": [],
+  "select_fields": [],
+  "order_by": [],
+  "limit": null,
+  "chart_type": "none"
+}}
+
+Q: "Top 10 best-selling items"
+A:
+{{
+  "model": "OrderItem",
+  "joins": [{{"model": "Product", "from_field": "product", "join_type": "inner"}}],
+  "filters": [],
+  "aggregations": [{{"field": "quantity", "operation": "sum", "alias": "total_sold"}}],
+  "group_by": ["product__name"],
+  "select_fields": [],
+  "order_by": [{{"field": "total_sold", "direction": "desc"}}],
+  "limit": 10,
+  "chart_type": "none"
+}}
+"""
+
 # LangChain ChatPromptTemplate for structured prompt handling:
 # - Validates template variables (schema, question)
 # - Handles escaping of literal braces in examples
@@ -143,13 +188,32 @@ CHAT_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 
-def build_messages(schema: str, question: str) -> dict:
+def build_messages(
+    schema: str,
+    question: str,
+    human_friendly_result: bool = False,
+) -> dict:
     """
     Build system + user messages for the AI query pipeline.
     Uses LangChain's ChatPromptTemplate for robust variable substitution
     and consistent prompt structure.
+
+    When human_friendly_result=True, adds instructions so the LLM prefers
+    aggregated single-row results for totals/summaries, and list results only
+    when the question explicitly asks for breakdown or top-N.
     """
-    messages = CHAT_PROMPT.format_messages(schema=schema, question=question)
+    if human_friendly_result:
+        output_mode_section = HUMAN_OUTPUT_MODE_SECTION
+        examples = HUMAN_EXAMPLES
+    else:
+        output_mode_section = ""
+        examples = MACHINE_EXAMPLES
+    messages = CHAT_PROMPT.format_messages(
+        schema=schema,
+        question=question,
+        output_mode_section=output_mode_section,
+        examples=examples,
+    )
     return {
         "system": messages[0].content,
         "messages": [{"role": "user", "content": messages[1].content}],
